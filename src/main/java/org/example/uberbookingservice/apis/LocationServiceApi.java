@@ -6,7 +6,7 @@ import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.POST;
 
-public interface LocationServiceImpl {
+public interface LocationServiceApi {
     @POST("/api/location/nearby/drivers")
     Call<DriverLocationDto[]> getNearByDriver(@Body NearbyDriverRequestDto requestDto);
 }

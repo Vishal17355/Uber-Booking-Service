@@ -6,42 +6,42 @@ import org.example.uberbookingservice.DTO.DriverLocationDto;
 import org.example.uberbookingservice.DTO.NearbyDriverRequestDto;
 import org.example.uberbookingservice.Repository.BookingRepository;
 import org.example.uberbookingservice.Repository.PassengerRepository;
+import org.example.uberbookingservice.apis.LocationServiceApi;
 import org.example.uberprojectentityservice.Models.Booking;
 import org.example.uberprojectentityservice.Models.BookingStatus;
 import org.example.uberprojectentityservice.Models.Passenger;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
-import java.sql.Driver;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
 @Service
 public class BookingServiceImpl implements BookingService {
-    public final PassengerRepository passengerRepository;
-    private final BookingRepository bookingRepository;
-    private final RestTemplate restTemplate;
-    private static final String LOCATION_SERVICE = "http://localhost:7070";
 
-    public BookingServiceImpl(PassengerRepository passengerRepository, BookingRepository bookingRepository) {
+    private final PassengerRepository passengerRepository;
+    private final BookingRepository bookingRepository;
+    private final LocationServiceApi locationServiceApi;
+
+    public BookingServiceImpl(PassengerRepository passengerRepository,
+                              BookingRepository bookingRepository,
+                              LocationServiceApi locationServiceApi) {
         this.passengerRepository = passengerRepository;
         this.bookingRepository = bookingRepository;
-        this.restTemplate = new RestTemplate();
+        this.locationServiceApi = locationServiceApi;
     }
 
     @Override
     public CreateBookingResponseDto createBooking(CreateBookingDto bookingDetails) {
-        // Fetch passenger safely
+        // Fetch passenger
         Passenger passenger = passengerRepository.findById(bookingDetails.getPassengerId())
-                .orElseThrow(() -> new RuntimeException(
-                        "Passenger not found with id: " + bookingDetails.getPassengerId()
-                ));
+                .orElseThrow(() -> new RuntimeException("Passenger not found with id: " + bookingDetails.getPassengerId()));
 
-        // Create and save booking
+        // Create booking
         Booking booking = Booking.builder()
                 .bookingStatus(BookingStatus.INITIATED)
                 .startLocation(bookingDetails.getStartLocation())
@@ -51,31 +51,58 @@ public class BookingServiceImpl implements BookingService {
 
         Booking newBooking = bookingRepository.save(booking);
 
-        // Fetch nearby drivers from location service
+        // Call location service asynchronously
         NearbyDriverRequestDto request = NearbyDriverRequestDto.builder()
                 .latitude(bookingDetails.getStartLocation().getLatitude())
                 .longitude(bookingDetails.getStartLocation().getLongitude())
                 .build();
 
-        ResponseEntity<DriverLocationDto[]> result = restTemplate.postForEntity(
-                LOCATION_SERVICE + "/api/location/nearby/drivers",
-                request,
-                DriverLocationDto[].class
-        );
-
-        if (result.getStatusCode().is2xxSuccessful() && result.getBody() != null && result.getBody().length > 0) {
-            List<DriverLocationDto> driverLocationDtoList = Arrays.asList(result.getBody());
-            driverLocationDtoList.forEach(driverLocationDto ->
-                    System.out.println("DriverId: " + driverLocationDto.getDriverId()
-                            + ", lat: " + driverLocationDto.getLatitude()
-                            + ", long: " + driverLocationDto.getLongitude())
-            );
-        }
+        processNearByDriverAsync(request);
 
         return CreateBookingResponseDto.builder()
                 .bookingId(newBooking.getId())
                 .bookingStatus(newBooking.getBookingStatus().toString())
-                .driver(Optional.ofNullable(newBooking.getDriver()))  // safer
+                .driver(Optional.ofNullable(newBooking.getDriver()))
                 .build();
+    }
+
+    /**
+     * ✅ Asynchronous call to Location Service using Retrofit
+     */
+    private void processNearByDriverAsync(NearbyDriverRequestDto requestDto) {
+        Call<DriverLocationDto[]> call = locationServiceApi.getNearByDriver(requestDto);
+
+        call.enqueue(new Callback<DriverLocationDto[]>() {
+            @Override
+            public void onResponse(Call<DriverLocationDto[]> call, Response<DriverLocationDto[]> response) {
+                System.out.println("✅ Response received from Location Service");
+
+                if (response.isSuccessful() && response.body() != null) {
+                    System.out.println("Number of drivers: " + response.body().length);
+
+                    List<DriverLocationDto> driverLocationDtoList = Arrays.asList(response.body());
+                    driverLocationDtoList.forEach(driverLocationDto ->
+                            System.out.println("DriverId: " + driverLocationDto.getDriverId()
+                                    + ", lat: " + driverLocationDto.getLatitude()
+                                    + ", long: " + driverLocationDto.getLongitude())
+                    );
+                } else {
+                    System.out.println("❌ Request failed: " + response.code() + " - " + response.message());
+                    try {
+                        if (response.errorBody() != null) {
+                            System.out.println("Error Body: " + response.errorBody().string());
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+            @Override
+            public void onFailure(Call<DriverLocationDto[]> call, Throwable throwable) {
+                System.out.println("🚨 Retrofit call failed: " + throwable.getMessage());
+                throwable.printStackTrace();
+            }
+        });
     }
 }
