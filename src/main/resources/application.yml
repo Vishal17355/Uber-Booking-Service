@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: UberBookingService   # Service name (must match in Eureka dashboard)
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/uber_db_local
+    username: root
+    password: vishal123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: validate  # Change to 'update' if you want  to Hibernate to manage schema
+
+server:
+  port: 8080
+eureka:
+  client:
+    register-with-eureka: true   # ? Ensures this service registers itself
+    fetch-registry: true         # ? Allows client to fetch registry from server
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true      # ? Ensures IP address is shown instead of hostname
