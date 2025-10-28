@@ -1,14 +1,13 @@
 package org.example.uberbookingservice.Services;
 
-import org.example.uberbookingservice.DTO.CreateBookingDto;
-import org.example.uberbookingservice.DTO.CreateBookingResponseDto;
-import org.example.uberbookingservice.DTO.DriverLocationDto;
-import org.example.uberbookingservice.DTO.NearbyDriverRequestDto;
+import org.example.uberbookingservice.DTO.*;
 import org.example.uberbookingservice.Repository.BookingRepository;
+import org.example.uberbookingservice.Repository.DriverRepository;
 import org.example.uberbookingservice.Repository.PassengerRepository;
 import org.example.uberbookingservice.apis.LocationServiceApi;
 import org.example.uberprojectentityservice.Models.Booking;
 import org.example.uberprojectentityservice.Models.BookingStatus;
+import org.example.uberprojectentityservice.Models.Driver;
 import org.example.uberprojectentityservice.Models.Passenger;
 import org.springframework.stereotype.Service;
 import retrofit2.Call;
@@ -26,22 +25,23 @@ public class BookingServiceImpl implements BookingService {
     private final PassengerRepository passengerRepository;
     private final BookingRepository bookingRepository;
     private final LocationServiceApi locationServiceApi;
+    private final DriverRepository driverRepository;
 
     public BookingServiceImpl(PassengerRepository passengerRepository,
                               BookingRepository bookingRepository,
-                              LocationServiceApi locationServiceApi) {
+                              LocationServiceApi locationServiceApi,
+                              DriverRepository driverRepository) {
         this.passengerRepository = passengerRepository;
         this.bookingRepository = bookingRepository;
         this.locationServiceApi = locationServiceApi;
+        this.driverRepository = driverRepository;
     }
 
     @Override
     public CreateBookingResponseDto createBooking(CreateBookingDto bookingDetails) {
-        // Fetch passenger
         Passenger passenger = passengerRepository.findById(bookingDetails.getPassengerId())
                 .orElseThrow(() -> new RuntimeException("Passenger not found with id: " + bookingDetails.getPassengerId()));
 
-        // Create booking
         Booking booking = Booking.builder()
                 .bookingStatus(BookingStatus.INITIATED)
                 .startLocation(bookingDetails.getStartLocation())
@@ -51,7 +51,6 @@ public class BookingServiceImpl implements BookingService {
 
         Booking newBooking = bookingRepository.save(booking);
 
-        // Call location service asynchronously
         NearbyDriverRequestDto request = NearbyDriverRequestDto.builder()
                 .latitude(bookingDetails.getStartLocation().getLatitude())
                 .longitude(bookingDetails.getStartLocation().getLongitude())
@@ -66,9 +65,26 @@ public class BookingServiceImpl implements BookingService {
                 .build();
     }
 
-    /**
-     * ✅ Asynchronous call to Location Service using Retrofit
-     */
+    @Override
+    public UpdateBookingResonseDto updateBooking(UpdateBookingRequestDto bookingRequestDto, Long bookingId) {
+        Optional<Driver> driver = driverRepository.findById(bookingRequestDto.getDriverId().get());
+
+        bookingRepository.updateBookingStatusAndDriverById(
+                bookingId,
+            BookingStatus.SCHEDULED,
+                driver.get()
+        );
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new RuntimeException("Booking not found with id: " + bookingId));
+
+        return UpdateBookingResonseDto.builder()
+                .bookingId(bookingId)
+                .status(booking.getBookingStatus())
+                .driver(Optional.ofNullable(booking.getDriver()))
+                .build();
+    }
+
     private void processNearByDriverAsync(NearbyDriverRequestDto requestDto) {
         Call<DriverLocationDto[]> call = locationServiceApi.getNearByDriver(requestDto);
 
@@ -79,7 +95,6 @@ public class BookingServiceImpl implements BookingService {
 
                 if (response.isSuccessful() && response.body() != null) {
                     System.out.println("Number of drivers: " + response.body().length);
-
                     List<DriverLocationDto> driverLocationDtoList = Arrays.asList(response.body());
                     driverLocationDtoList.forEach(driverLocationDto ->
                             System.out.println("DriverId: " + driverLocationDto.getDriverId()

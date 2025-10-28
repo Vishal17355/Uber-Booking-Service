@@ -13,4 +13,7 @@ public class NearbyDriverRequestDto {
     Double latitude;
 
     Double longitude;
+
+    public static class UpdateBookingRequestDto {
+    }
 }
